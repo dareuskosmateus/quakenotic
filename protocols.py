@@ -19,7 +19,13 @@ class NoTransport(Exception):
     pass
 
 
-class CustomProtocol(asyncio.DatagramProtocol):
+class Conn(object):
+    def __init__(self, parent: object, transport: asyncio.Transport, protocol: asyncio.Protocol):
+        self.parent = parent
+        self.transport, self.protocol = transport, protocol
+
+
+class XonoticProtocol(asyncio.DatagramProtocol):
     # bufsize = 1024
 
     def __init__(self,
@@ -70,8 +76,8 @@ class CustomProtocol(asyncio.DatagramProtocol):
         logger.info("Setting " + misc.chat_dest_command + "...")
         self.rcon(misc.chat_dest_command
                   + "{}:{}".format(
-                    str(urllib.request.urlopen(misc.url_check_public_ip).read().decode().strip()),
-                    int(port)))
+            str(urllib.request.urlopen(misc.url_check_public_ip).read().decode().strip()),
+                  int(port)))
         return
 
     def connection_lost(self, exc: Exception):
@@ -96,12 +102,13 @@ class CustomProtocol(asyncio.DatagramProtocol):
 
             if re.match(rb"^" + misc.rcon_response, data):
                 data = re.sub(rb"^" + misc.rcon_response, b'', data)
-                logger.debug("Received rcon response " + data.decode().strip())  # comment our or set debug lvl higher to avoid spam
+                logger.debug(
+                    "Received rcon response " + data.decode().strip())  # comment our or set debug lvl higher to avoid spam
 
             elif re.match(rb"^" + misc.ingame_chat, data):
                 data = re.sub(rb"^" + misc.ingame_chat, b'', data)
                 logger.debug("Received in-game chat message " + data.decode().strip())  # like above
-                asyncio.create_task(self.callback(data.decode()))
+                asyncio.create_task(self.callback(self.parent, data.decode()))
 
             elif re.match(rb"^" + misc.challenge, data):
                 logger.info("Received challenge " + data.decode())
@@ -162,5 +169,14 @@ class CustomProtocol(asyncio.DatagramProtocol):
             self.transport.sendto(self.construct_secure_time(command))  # asynchronous
         else:
             logger.error(NoTransport)
+            return False
+        return True
+
+    def keepalive(self) -> bool:
+        if self.transport:
+            logger.debug("Keepalive sent")
+            self.transport.sendto(misc.keepalive)
+        else:
+            logger.warning(NoTransport)
             return False
         return True
