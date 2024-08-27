@@ -4,9 +4,10 @@ import os
 import sys
 from dotenv import load_dotenv
 import bot
+import protocols
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG) # make formatting pretty
 
 
 if __name__ == "__main__":

@@ -15,6 +15,11 @@ class Bot(discord.ext.commands.Bot):
     max_message_length = 127
     to_xonotic_format = "<{}>:[{}]: {}"
     from_xonotic_format = "`{}`"
+    status_format = ("{gamename:<12} {gameversion:<12} {hostname:<12}\n"
+                     "{clients}/{maxclients} ({bots} bots)\n"
+                     "{mapname}\n"
+                     "{players}\n"
+                     "")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -76,15 +81,33 @@ class Bot(discord.ext.commands.Bot):
         :return: None
         """
 
-        @self.command(name="status", description="Queries game server for current status: players, map, ping.")
+        @self.command(name="status", description="Queries game server for current status: players, map, hostname.")
         async def game_status(ctx):
-            # todo
+            for conn in self.connections:
+                if ctx.channel in self.connections[conn]:
+                    data = await conn.protocol.request_status(ctx.author.name.encode())
+                    await ctx.channel.send(await self.format_status(data))
+            return
+
+        @self.command(name="info", description="Queries game server for current info. Doesn't seem to be different from status")
+        async def game_info(ctx):
+            for conn in self.connections:
+                if ctx.channel in self.connections[conn]:
+                    data = await conn.protocol.request_status(ctx.author.name.encode())
+                    await ctx.channel.send(self.format_status(data))
             return
 
         @self.command(name="ping", description="Pong.")
         async def check_if_dead(ctx) -> None:
             await ctx.channel.send("Pong")
             return
+
+        @self.command(name="getchallenge")
+        async def get_chal(ctx) -> None:
+            for conn in self.connections:
+                if ctx.channel in self.connections[conn]:
+                    data = await conn.protocol.send_getchallenge()
+                    await ctx.channel.send(data) # fix getchallenge with decorator
 
         # add further decorators and associated functions for more commands
         return
@@ -98,13 +121,13 @@ class Bot(discord.ext.commands.Bot):
 
     async def on_message(self, message: discord.Message, /):
         """Stock discord coroutine."""
+
         if not message.author.bot:
             await self.process_commands(message)
             for conn in self.connections:
-                if message.channel in self.connections[conn]:
-                    if len(message.content) <= Bot.max_message_length:
-                        conn.protocol.rcon("discordsay \"" + Bot.to_xonotic_format.format(
-                            message.author.id, message.author.name, message.content) + "\"")
+                if message.channel in self.connections[conn] and len(message.content) <= Bot.max_message_length:
+                    conn.protocol.rcon("discordsay \"" + Bot.to_xonotic_format.format(
+                        message.author.id, message.author.name, message.content) + "\"")
             pass
         return
 
@@ -117,5 +140,18 @@ class Bot(discord.ext.commands.Bot):
     async def refresh_datagrams(self):
         logger.debug("Refreshing datagrams...")
         for conn in self.connections:
-            conn.protocol.keepalive()
+            await conn.protocol.keepalive()
         return
+
+    def format_status(self, status: dict):
+
+        formatted = "```"
+        formatted += Bot.status_format.format(gamename=status[b'gamename'].decode(),gameversion=status[b'gameversion'].decode(),
+                                              hostname=status[b'hostname'].decode(), clients=status[b'clients'].decode(),
+                                              maxclients=status[b'sv_maxclients'].decode(), bots=status[b'bots'].decode(),
+                                              mapname=status[b'mapname'].decode(), players="Players:")
+        for player in status['players']:
+            formatted += "{}\n".format(player.decode())
+        formatted += "```"
+
+        return formatted # change this because its terrible
