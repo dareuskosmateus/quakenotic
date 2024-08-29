@@ -10,7 +10,10 @@ keepalive = b'keepalive'
 header = b'\xFF' * 4
 
 rcon_response = b"n"
-ingame_chat = b""
+ingame_chat = b""  # b"chat"
+ingame_spec = b"spec"
+ingame_death = b"died"
+ingame_teamchange = b"team"
 
 getchallenge = b"getchallenge "
 getstatus = b"getstatus "
@@ -19,7 +22,7 @@ getinfo = b"getinfo "
 statusresponse = b"statusResponse\n"
 inforesponse = b"infoResponse\n"
 
-challenge = b"challenge"
+challenge = b"challenge "
 insecure = b"rcon "
 secure_time = b"srcon HMAC-MD4 TIME "
 secure_challenge = b"srcon HMAC-MD4 CHALLENGE "

@@ -1,25 +1,20 @@
 import discord
-import logging
+
 from discord.ext import commands, tasks
 import asyncio
 import os
 import sys
 
+import logsetup
 import protocols
 
-logger = logging.getLogger(__name__)  # for logging purposes
-logging.basicConfig(level=logging.DEBUG)
+logger = logsetup.setup_log(__name__)  # for logging purposes
 
 
 class Bot(discord.ext.commands.Bot):
     max_message_length = 127
     to_xonotic_format = "<{}>:[{}]: {}"
     from_xonotic_format = "`{}`"
-    status_format = ("{gamename:<12} {gameversion:<12} {hostname:<12}\n"
-                     "{clients}/{maxclients} ({bots} bots)\n"
-                     "{mapname}\n"
-                     "{players}\n"
-                     "")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -29,6 +24,18 @@ class Bot(discord.ext.commands.Bot):
         self.setup_commands()
 
         return
+
+    @classmethod
+    async def new(cls, *args, **kwargs) -> object:
+        """
+        Classmethod constructor. Add async attributes here that cannot be set in __init__,
+        Remember to set an "update" function if dealing with inheritance,
+        To be used in async functions.
+        :return: Instance of this class
+        """
+
+        self = cls(*args, **kwargs)
+        return self
 
     async def setup_connections(self):
         with open(os.path.dirname(os.path.realpath(sys.argv[0])) + "/sockets.csv") as sockets:
@@ -62,18 +69,6 @@ class Bot(discord.ext.commands.Bot):
 
         return conn
 
-    @classmethod
-    async def new(cls, *args, **kwargs) -> object:
-        """
-        Classmethod constructor. Add async attributes here that cannot be set in __init__,
-        Remember to set an "update" function if dealing with inheritance,
-        To be used in async functions.
-        :return: Instance of this class
-        """
-
-        self = cls(*args, **kwargs)
-        return self
-
     def setup_commands(self) -> None:
         """
         Sets up commands of this bot. Needs to be invoked within __init__. Put your commands with decorators
@@ -81,33 +76,28 @@ class Bot(discord.ext.commands.Bot):
         :return: None
         """
 
-        @self.command(name="status", description="Queries game server for current status: players, map, hostname.")
+        @self.command(name="status",
+                      description="Queries game server for current status: players, map, hostname.")
         async def game_status(ctx):
             for conn in self.connections:
                 if ctx.channel in self.connections[conn]:
                     data = await conn.protocol.request_status(ctx.author.name.encode())
-                    await ctx.channel.send(await self.format_status(data))
+                    await ctx.channel.send(embed=self.format_status(data, ctx.author.name))
             return
 
-        @self.command(name="info", description="Queries game server for current info. Doesn't seem to be different from status")
+        @self.command(name="info",
+                      description="Queries game server for current info. Doesn't seem to be different from status")
         async def game_info(ctx):
             for conn in self.connections:
                 if ctx.channel in self.connections[conn]:
-                    data = await conn.protocol.request_status(ctx.author.name.encode())
-                    await ctx.channel.send(self.format_status(data))
+                    data = await conn.protocol.request_info(ctx.author.name.encode())
+                    await ctx.channel.send(embed=self.format_status(data))
             return
 
         @self.command(name="ping", description="Pong.")
         async def check_if_dead(ctx) -> None:
             await ctx.channel.send("Pong")
             return
-
-        @self.command(name="getchallenge")
-        async def get_chal(ctx) -> None:
-            for conn in self.connections:
-                if ctx.channel in self.connections[conn]:
-                    data = await conn.protocol.send_getchallenge()
-                    await ctx.channel.send(data) # fix getchallenge with decorator
 
         # add further decorators and associated functions for more commands
         return
@@ -126,13 +116,24 @@ class Bot(discord.ext.commands.Bot):
             await self.process_commands(message)
             for conn in self.connections:
                 if message.channel in self.connections[conn] and len(message.content) <= Bot.max_message_length:
-                    conn.protocol.rcon("discordsay \"" + Bot.to_xonotic_format.format(
-                        message.author.id, message.author.name, message.content) + "\"")
+                    if message.reference:
+                        referred = await message.channel.fetch_message(message.reference.message_id)
+                        conn.protocol.rcon("discordsay \"" + Bot.to_xonotic_format.format(
+                            message.author.id, message.author.name,
+                            "(to {}) {}".format(referred.author.name, message.content)) + "\"")
+                    else:
+                        conn.protocol.rcon("discordsay \"" + Bot.to_xonotic_format.format(
+                            message.author.id, message.author.name,
+                            message.content + "\""))
             pass
         return
 
     async def write_to_chats(self, conn: object, msg: str) -> None:
         for channel in self.connections[conn]:
+            # indexname, content = msg.split(":", 1)
+            # hook = await channel.create_webhook(name=indexname, reason="Incoming chat message")
+            # await hook.send(content)
+            # await hook.delete(reason="Expired (chat message already sent)")
             await channel.send(Bot.from_xonotic_format.format(msg))
         return
 
@@ -143,15 +144,26 @@ class Bot(discord.ext.commands.Bot):
             await conn.protocol.keepalive()
         return
 
-    def format_status(self, status: dict):
+    def format_status(self, status: dict, requester: str = None) -> discord.Embed:
+        embed = discord.Embed(title="Server status",
+                              description="",
+                              )
 
-        formatted = "```"
-        formatted += Bot.status_format.format(gamename=status[b'gamename'].decode(),gameversion=status[b'gameversion'].decode(),
-                                              hostname=status[b'hostname'].decode(), clients=status[b'clients'].decode(),
-                                              maxclients=status[b'sv_maxclients'].decode(), bots=status[b'bots'].decode(),
-                                              mapname=status[b'mapname'].decode(), players="Players:")
-        for player in status['players']:
-            formatted += "{}\n".format(player.decode())
-        formatted += "```"
+        embed.add_field(name="Server name: ", value=status['hostname'], inline=True)
+        embed.add_field(name="Address: ", value=status['ip'], inline=True)
+        embed.add_field(name="Map: ", value=status['mapname'], inline=True)
+        embed.add_field(name="Clients: ", value="{}/{} ({} bots)".format(
+            status['clients'], status['sv_maxclients'], status['bots']), inline=True)
 
-        return formatted # change this because its terrible
+        if bool(status['players']):
+            formatted = "`{:<30} {:>5} {:4} {:2}`\n".format("Nickname", "Score", "Ping", "Team")
+            for player in status['players']:
+
+                formatted += "`{:<30} {:>5} {:4} {:4}`\n".format(
+                    player.name, player.score, player.ping, player.team if bool(player.team) else "")
+            embed.add_field(name="Player list: ", value=formatted, inline=False)
+
+        if requester:
+            embed.set_footer(text="Copyup 2069 LOLOLOL, requested by {}".format(requester))
+
+        return embed

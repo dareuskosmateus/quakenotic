@@ -1,16 +1,16 @@
 import asyncio
-import logging
 import re
 import hmac
 import time
+import socket
 from functools import wraps
 from typing import Callable
 import urllib.request
 
+import logsetup
 import misc
 
-logger = logging.getLogger(__name__)  # for logging purposes
-logging.basicConfig(level=logging.DEBUG)
+logger = logsetup.setup_log(__name__)  # for logging purposes
 
 
 class NoTransport(Exception):
@@ -23,7 +23,8 @@ class NoTransport(Exception):
 class Conn(object):
     instances = []
     """Wrapper class for transport/protocol of async."""
-    def __init__(self, parent: object, transport: asyncio.Transport, protocol: asyncio.Protocol):
+
+    def __init__(self, parent: object, transport: asyncio.Transport = None, protocol: asyncio.Protocol = None):
         Conn.instances.append(self)
 
         self.parent = parent
@@ -32,14 +33,64 @@ class Conn(object):
     def __del__(self):
         Conn.instances.remove(self)
 
+
 class Query(object):
-    def __init__(self, identifier, event, data, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, identifier, event, data):
+        super().__init__()
         self.identifier, self.event, self.data = identifier, event, data
 
 
-class XonoticProtocol(asyncio.DatagramProtocol):
-    # bufsize = 1024
+class Player(object):
+    def __init__(self, name: str, *args):
+        super().__init__()
+        self.name, self.score, self.ping = name, args[0], args[1]
+        self.team = Player.match_team(args[2]) if args[2] else ""
+
+    @staticmethod
+    def match_team(team: int):
+        match int(team):
+            case 0:
+                return "Spec"
+            case 1:
+                return "Red"
+            case 2:
+                return "Blue"
+        return
+
+
+class GameProtocol(asyncio.DatagramProtocol):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def if_transport(func):
+        @wraps(func)  # allows access to args of func, and a bunch of other quality of life features
+        def wrap(self, *args, **kwargs):
+            if self.transport is None:
+                raise NoTransport(self.identifier)
+            return func(self, *args, **kwargs)
+
+        return wrap
+
+    @staticmethod
+    def querying(func):
+        @wraps(func)  # allows access to args of func, and a bunch of other quality of life features
+        async def wrap(self, challenge, *args, **kwargs):
+            query = Query(challenge, asyncio.Event(), bytearray())
+            self.queries.append(query)
+            await func(self, challenge, *args, **kwargs)
+            await query.event.wait()
+            self.queries.remove(query)
+            return query.data
+
+        return wrap
+
+    def rcon(self):
+        raise NotImplementedError("Implement this abstract method before usage")
+
+
+class XonoticProtocol(GameProtocol):
+    encoding = 'utf-8'
 
     def __init__(self,
                  parent: object,
@@ -74,39 +125,18 @@ class XonoticProtocol(asyncio.DatagramProtocol):
         self.transport = None
 
         self.challenge = None
-        self.encoding = 'utf-8'
 
         self.security = security
 
-        self.queries = []
+        self.queries = []  # think of converting this into a quasi queue
         return
 
     @property
     def identifier(self):
         """Identifier to help keep track which object issued a log message."""
-        return "<{}>:{} ".format(str(hex(id(self))), str(self.transport.get_extra_info('sockname')))
-
-    @staticmethod
-    def if_transport(func):
-        @wraps(func)
-        def wrap(self, *args, **kwargs):
-            if self.transport is None:
-                raise NoTransport(self.identifier)
-            return func(self, *args, **kwargs)
-
-        return wrap
-
-    @staticmethod
-    def querying(func):
-        @wraps(func)
-        async def wrap(self, challenge, *args, **kwargs):
-            query = Query(challenge, asyncio.Event(), bytearray())
-            self.queries.append(query)
-            await func(self, challenge, *args, **kwargs)
-            await query.event.wait()
-            self.queries.remove(query)
-            return query.data
-        return wrap
+        return "<{}>:{}:{} ".format(str(hex(id(self))),
+                                    str(self.transport.get_extra_info('sockname')),
+                                    str(self.transport.get_extra_info('peername')))
 
     def connection_made(self, transport):
         self.transport = transport
@@ -114,18 +144,32 @@ class XonoticProtocol(asyncio.DatagramProtocol):
         logger.info(self.identifier + "Successfully set up a datagram endpoint to "
                     + str(self.transport.get_extra_info('peername')))
 
+        self.set_chat_dest()
+        self.send_getchallenge()
+        return
+
+    def set_chat_dest(self):
+        logger.info(self.identifier + "Setting " + misc.chat_dest_command + "...")
+
         port = self.transport.get_extra_info('sockname')[1]
 
-        logger.info(self.identifier + "Setting " + misc.chat_dest_command + "...")
-        self.rcon(misc.chat_dest_command
-                  + "{}:{}".format(
-            str(urllib.request.urlopen(misc.url_check_public_ip).read().decode().strip()),
-            int(port)))
+        match self.ip:
+            case 'localhost' | 'loopback':
+                self.rcon(misc.chat_dest_command
+                          + "{}:{}".format(
+                            socket.gethostbyname(socket.gethostname()),
+                            int(port)))
+
+            case _:
+                self.rcon(misc.chat_dest_command
+                          + "{}:{}".format(
+                            str(urllib.request.urlopen(misc.url_check_public_ip).read().decode().strip()),
+                            int(port)))
         return
 
     def connection_lost(self, exc: Exception):
         if exc:
-            logger.error(self.identifier + exc)
+            logger.error(self.identifier + repr(exc))
         else:
             logger.info(self.identifier + "Closed an endpoint to "
                         + str(self.transport.get_extra_info('peername')))
@@ -133,7 +177,7 @@ class XonoticProtocol(asyncio.DatagramProtocol):
 
     def error_received(self, exc: Exception):
         if exc:
-            logger.error(self.identifier + exc)
+            logger.error(self.identifier + repr(exc))
         else:
             return
 
@@ -147,7 +191,6 @@ class XonoticProtocol(asyncio.DatagramProtocol):
                              + "Received rcon response "
                              + data.decode().strip())  # comment our or set debug lvl higher to avoid spam
 
-
             elif re.match(rb"^" + misc.challenge, data):
                 logger.info(self.identifier + "Received challenge " + data.decode())
                 self.challenge = data
@@ -156,36 +199,47 @@ class XonoticProtocol(asyncio.DatagramProtocol):
                 logger.info(self.identifier + "Received status response " + data.decode())
                 data = re.sub(rb"^" + misc.statusresponse, b'', data)
                 self.handle_query_response(data)
-                pass
-                # print to interested parties
 
             elif re.match(rb"^" + misc.inforesponse, data):
                 logger.info(self.identifier + "Received info response " + data.decode())
-                data = re.sub(rb"^"+ misc.inforesponse, b'', data)
+                data = re.sub(rb"^" + misc.inforesponse, b'', data)
                 self.handle_query_response(data)
-                # whatever
 
             elif re.match(rb"^" + misc.ingame_chat, data):
                 data = re.sub(rb"^" + misc.ingame_chat, b'', data)
                 logger.debug(self.identifier + "Received in-game chat message " + data.decode().strip())  # like above
                 asyncio.create_task(self.callback(self.parent, data.decode()))
 
+            elif re.match(rb"^" + misc.ingame_spec, data):
+                data = re.sub(rb"^" + misc.ingame_chat, b'', data)
+                logger.debug(self.identifier + "Received in-game change-to-spec signal " + data.decode())
+                asyncio.create_task(self.callback(self.parent, data.decode()))
+
+            elif re.match(rb"^" + misc.ingame_death, data):
+                data = re.sub(rb"^" + misc.ingame_death, b'', data)
+                logger.debug(self.identifier + "Received in-game player death signal " + data.decode())
+                asyncio.create_task(self.callback(self.parent, data.decode()))
+
+            elif re.match(rb"^" + misc.ingame_teamchange, data):
+                data = re.sub(rb"^" + misc.ingame_teamchange, b'', data)
+                logger.debug(self.identifier + "Received in-game team change signal " + data.decode())
+                asyncio.create_task(self.callback(self.parent, data.decode()))
+
             else:
-                logger.warning(self.identifier + "Incoming datagram hasn't matched any patterns")
-                print(data)
+                logger.warning(self.identifier + "Incoming datagram hasn't matched any patterns " + data.decode())
         else:
-            logger.warning(self.identifier + "Encountered a packet with a non-Quake header")
+            logger.warning(self.identifier + "Encountered a packet with a non-Quake header" + data.decode())
             return
 
     def construct_getchallenge(self) -> bytes:
         return misc.header + misc.getchallenge
 
-    @if_transport
-    @querying
-    def send_getchallenge(self, challenge="") -> None:
+    @GameProtocol.if_transport
+    # technically it's also querying, but we don't care about handling this request
+    def send_getchallenge(self) -> None:
         """Sends a challenge issue request to remote host."""
-        getchallenge = self.construct_getchallenge()
-        self.transport.sendto(getchallenge)
+        logger.info(self.identifier + "Retrieving challenge...")
+        self.transport.sendto(self.construct_getchallenge())
         return
 
     def parse_challenge(self, challenge: bytes) -> bytes:
@@ -207,7 +261,6 @@ class XonoticProtocol(asyncio.DatagramProtocol):
                 return self.construct_insecure(command)
             case _:
                 logger.error(self.identifier + "Construct called but no security has been set")
-                return
 
     def construct_secure_time(self, command: str) -> bytes:
         """
@@ -232,7 +285,7 @@ class XonoticProtocol(asyncio.DatagramProtocol):
         """
         raise NotImplementedError  # todo
 
-    def construct_insecure(self, command: str):
+    def construct_insecure(self, command: str) -> bytes:
         """
         Returns insecure barebytes rcon packet. Server doesn't respond unless it has set `rcon_secure 0`.
         :param command: A command to send to the remote host.
@@ -241,28 +294,29 @@ class XonoticProtocol(asyncio.DatagramProtocol):
         """
         return misc.header + misc.insecure + self.passw + command
 
-    @if_transport
-    def rcon(self, command: str):
+    @GameProtocol.if_transport
+    # querying?
+    def rcon(self, command: str) -> None:
         """
         Sends an RCON command to a remote host.
         :param command: A command to send to the remote host.
         :type command: str
-        :return: True or false based on success.
+        :return: None
         """
         logger.debug(self.identifier + "Sent rcon command " + command)
         self.transport.sendto(self.construct(command))  # asynchronous
-        # return await response
+        return  # do we care about return value of an rcon?
 
-    @if_transport
-    async def keepalive(self):
+    @GameProtocol.if_transport
+    async def keepalive(self) -> None:
         """Keeps the system from closing this socket"""
         logger.debug(self.identifier + "Keepalive sent")
         self.transport.sendto(misc.keepalive)
-        # return await response?
+        return  # don't care about the return of this
 
-    @if_transport
-    @querying
-    async def request_status(self, challenge: bytes):
+    @GameProtocol.if_transport
+    @GameProtocol.querying
+    async def request_status(self, challenge: bytes) -> None:
         """
         Requests status from remote host.
         :param challenge: identifier to identify response packet with. Doesn't have to be server issued challenge,
@@ -274,12 +328,12 @@ class XonoticProtocol(asyncio.DatagramProtocol):
         self.transport.sendto(misc.header + misc.getstatus + challenge)
         return
 
-    @if_transport
-    @querying
-    async def request_info(self, challenge: bytes):
+    @GameProtocol.if_transport
+    @GameProtocol.querying
+    async def request_info(self, challenge: bytes) -> None:
         """
         Requests info according to https://discourse.ioquake.org/t/how-to-get-server-status-with-python/1135
-        Doesn't seem to be doing anything different than getstatus. I left it in
+        Doesn't seem to be doing anything different from getstatus. I left it in
         :param challenge: identifier to identify response packet with. Doesn't have to be server issued challenge,
         can be anything.
         :type challenge: bytes
@@ -289,27 +343,35 @@ class XonoticProtocol(asyncio.DatagramProtocol):
         self.transport.sendto(misc.header + misc.getinfo + challenge)
         return
 
-    @if_transport
-    def handle_query_response(self, data: bytes): # this is a bit slow
+    @GameProtocol.if_transport
+    def handle_query_response(self, data: bytes) -> None:  # this is a bit slow
         """
         Parses raw bytes response into a dictionary
 
         :param data: bytes data from remote host.
         :return: None
         """
-        challenge = re.findall(b'\\\challenge\\\([a-zA-Z]+)', data)
+        challenge = re.findall(b'(?<=\\\\challenge\\\\)(.*?)(?=\\\\)', data)
         for query in self.queries:
             if challenge[0] == query.identifier:
 
-                parsed = re.findall(b'(\\\+[A-Za-z0-9_ :.!]+\\\+[A-Za-z0-9_ :.!]+)', data) # change it so it doesnt pick up the challenge
+                parsed = re.findall(b'(\\\\([ -[\]-~]+)\\\\([ -[\]-~]+))',
+                                    data)  # change it so it doesn't pick up the ?challenge? do we care?
                 keyvalues = {}
 
                 for pair in parsed:
-                    split = pair.split(b"\\")
-                    keyvalues.update({split[1]:split[2]})
+                    keyvalues.update({pair[1].decode(): pair[2].decode()})
 
-                players = re.findall(rb'([^\n]+[A-Za-z0-9" -]+[^\n])', re.sub(b'(\\\+[A-Za-z0-9_ :.!/-@+\-\"\^]+\\\+[A-Za-z0-9_ :.!/-@+\-\"\^]+)', b'', data))
-                keyvalues.update({b'players' : players})
+                players = re.findall(b'(?<=\\n).+?(?=\\n)', data)
+
+                for iterator in range(0, len(players)):
+                    name = re.search(b'\"(.*)\"', players[iterator]).group().decode().strip("\"")
+                    numbers = players[iterator].split(b"\"")[0].decode().split(' ')
+                    player = Player(name, *numbers)
+                    players[iterator] = player
+
+                keyvalues.update({'players': players,
+                                  'ip': "{}:{}".format(self.ip, self.port)})
 
                 query.data = keyvalues
                 query.event.set()
