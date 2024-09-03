@@ -13,7 +13,7 @@ logger = logsetup.setup_log(__name__)  # for logging purposes
 
 class Bot(discord.ext.commands.Bot):
     max_message_length = 127
-    to_xonotic_format = "<{}>:[{}]: {}"
+    to_xonotic_format = "<^xC00DISCORD^7>:[{}]: {}"
     from_xonotic_format = "`{}`"
 
     def __init__(self, *args, **kwargs):
@@ -112,18 +112,20 @@ class Bot(discord.ext.commands.Bot):
     async def on_message(self, message: discord.Message, /):
         """Stock discord coroutine."""
 
+        logger.debug("Message caught in " + str(message.channel.id) + ", contents " + str(message.content))
         if not message.author.bot:
             await self.process_commands(message)
             for conn in self.connections:
                 if message.channel in self.connections[conn] and len(message.content) <= Bot.max_message_length:
+                    logger.debug("Sending from discord " + str(message.content))
                     if message.reference:
                         referred = await message.channel.fetch_message(message.reference.message_id)
-                        conn.protocol.rcon("discordsay \"" + Bot.to_xonotic_format.format(
-                            message.author.id, message.author.name,
-                            "(to {}) {}".format(referred.author.name, message.content)) + "\"")
+                        conn.protocol.rcon("say \"" + Bot.to_xonotic_format.format(
+                            message.author.display_name,
+                            "(to {}) {}".format(referred.author.display_name, message.content)) + "\"")
                     else:
-                        conn.protocol.rcon("discordsay \"" + Bot.to_xonotic_format.format(
-                            message.author.id, message.author.name,
+                        conn.protocol.rcon("say \"" + Bot.to_xonotic_format.format(
+                            message.author.display_name,
                             message.content + "\""))
             pass
         return
@@ -134,7 +136,7 @@ class Bot(discord.ext.commands.Bot):
             # hook = await channel.create_webhook(name=indexname, reason="Incoming chat message")
             # await hook.send(content)
             # await hook.delete(reason="Expired (chat message already sent)")
-            await channel.send(Bot.from_xonotic_format.format(msg))
+            await channel.send(Bot.from_xonotic_format.format(msg.replace('`','')))
         return
 
     @tasks.loop(seconds=20)

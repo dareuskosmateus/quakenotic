@@ -113,7 +113,7 @@ class XonoticProtocol(GameProtocol):
                  ip: str, port: int, passw: str,
                  on_con_lost: asyncio.Future,
                  write_callback: Callable,
-                 *args, security=misc.Security.RCON_SECURE_TIME, **kwargs):
+                 *args, security=misc.Security.RCON_INSECURE, **kwargs):
         """
         :param parent: Parent of this object. Use to call parent's methods where applicable
         :type parent: object
@@ -150,9 +150,7 @@ class XonoticProtocol(GameProtocol):
     @property
     def identifier(self):
         """Identifier to help keep track which object issued a log message."""
-        return f"<{str(hex(id(self)))}>:" \
-               f"{str(self.transport.get_extra_info('sockname'))}:" \
-               f"{str(self.transport.get_extra_info('peername'))} "
+        return f"<{str(hex(id(self)))}>:{str(self.transport.get_extra_info('sockname'))}:{str(self.transport.get_extra_info('peername'))}"
 
     def connection_made(self, transport):
         self.transport = transport
@@ -175,10 +173,10 @@ class XonoticProtocol(GameProtocol):
         port = self.transport.get_extra_info('sockname')[1]
 
         match self.ip:
-            case 'localhost' | 'loopback':
+            case 'localhost' | 'loopback' | '127.0.0.1':
                 self.rcon(misc.chat_dest_command
                           + "{}:{}".format(
-                    socket.gethostbyname(socket.gethostname()),
+                    '127.0.0.1', #socket.gethostbyname(socket.gethostname())
                     int(port)))
 
             case _:
@@ -209,7 +207,7 @@ class XonoticProtocol(GameProtocol):
             if re.match(rb"^" + misc.rcon_response, data):
                 data = re.sub(rb"^" + misc.rcon_response, b'', data)
                 logger.debug(self.identifier
-                             + "Received rcon response from " + addr
+                             + "Received rcon response "
                              + data.decode().strip())  # comment our or set debug lvl higher to avoid spam
 
             elif re.match(rb"^" + misc.challenge, data):
@@ -321,7 +319,8 @@ class XonoticProtocol(GameProtocol):
         :type command: str
         :return: Body of unsecure rcon protocoled packet.
         """
-        return misc.header + misc.insecure + self.passw + command
+        #print(misc.header + misc.insecure + bytes(self.passw, self.encoding) + bytes(command, self.encoding))
+        return misc.header + misc.insecure + bytes(self.passw, self.encoding) + b" " +  bytes(command, self.encoding)
 
     @GameProtocol.if_transport
     # querying?
@@ -397,7 +396,8 @@ class XonoticProtocol(GameProtocol):
                         players = re.findall(b'(?<=\\n).+?(?=\\n)', data)
 
                         for iterator in range(0, len(players)):
-                            name = re.search(b'\"(.*)\"', players[iterator]).group().decode().strip("\"")
+                            coloredname = re.search(b'\"(.*)\"', players[iterator]).group().decode().strip("\"")
+                            name = re.sub("(?:\^x(?:[0-9]|[A-F])(?:[0-9]|[A-F])(?:[0-9]|[A-F])|\^[0-9])", "", coloredname, flags=re.IGNORECASE)
                             numbers = players[iterator].split(b"\"")[0].decode().split(' ')
                             players[iterator] = Player(name, *numbers)
 
