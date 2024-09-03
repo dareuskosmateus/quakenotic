@@ -1,19 +1,14 @@
 import logging
-import discord
-import os
-import sys
-from dotenv import load_dotenv
 
-import bot
+import handler
 import logsetup
 
 
 def main():
     logger.info("Main executed")
-    load_dotenv(os.path.dirname(os.path.realpath(sys.argv[0])) + "/env_vars.env")
-    token = os.getenv("TOKEN")
-    client = bot.Bot(intents=discord.Intents.all(), command_prefix="$")  # change to appropriate intents
-    client.run(token)
+
+    handler_ = handler.Handler()
+    handler_.run()
     return
 
 
