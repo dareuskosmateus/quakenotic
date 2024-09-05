@@ -99,6 +99,10 @@ class Bot(discord.ext.commands.Bot):
             await ctx.channel.send("Pong")
             return
 
+        @self.command(name="goatstatus", description="Bah.")
+            ctx.channel.send(":goat:")
+            return
+
         # add further decorators and associated functions for more commands
         return
 
