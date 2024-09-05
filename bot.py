@@ -12,7 +12,7 @@ logger = logsetup.setup_log(__name__)  # for logging purposes
 
 
 class Bot(discord.ext.commands.Bot):
-    max_message_length = 127
+    max_message_length = 255
     to_xonotic_format = "<^xC00DISCORD^7>:[{}]: {}"
     from_xonotic_format = "{}"
 
