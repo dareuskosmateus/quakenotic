@@ -1,3 +1,5 @@
+import asyncio
+
 import discord
 from discord.ext import commands, tasks
 
@@ -13,7 +15,8 @@ class Bot(discord.ext.commands.Bot):
     from_xonotic_format = "`{}`"
 
     def __init__(self, *args, **kwargs):
-        self.token = kwargs['token']
+        self.loop = asyncio.get_running_loop()
+        self.token = kwargs['token'] if kwargs['token'] else None
         intents = kwargs['intents']
         kwargs.pop('intents')
         super().__init__(*args, intents=discord.Intents(**intents), **kwargs)
@@ -43,6 +46,12 @@ class Bot(discord.ext.commands.Bot):
             super().run(*args, **kwargs)
 
         return
+
+    async def start(self, token=None, *args, **kwargs):
+        if self.token:
+            await super().start(self.token, *args, **kwargs)
+        else:
+            await super().start(token, *args, **kwargs)
 
     def setup_commands(self) -> None:
         """
@@ -94,6 +103,8 @@ class Bot(discord.ext.commands.Bot):
 
         return
 
-    async def send_to_channel(self, msg: str, channelid: int):
-        await self.get_channel(channelid).send(msg)
+    async def send(self, channelid: list[int], msg: str):
+        for each in channelid:
+            channel = self.get_channel(each)
+            await channel.send(msg)
         return
