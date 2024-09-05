@@ -162,7 +162,7 @@ class XonoticProtocol(GameProtocolUDP):
 
         """
         super().__init__(*args, **kwargs)
-        self.clients = [self.create_client(args[0], args[1], args[2]) for args in clients]
+        self.clients = [self.create_client(args['addr'], args['port'], args['passw']) for args in clients]
         self.on_con_lost = on_con_lost
         self.callback = write_callback
 
@@ -266,7 +266,7 @@ class XonoticProtocol(GameProtocolUDP):
                 data = re.sub(rb"^" + self.ingame_chat, b'', data)
                 logger.debug(self.identifier + "Received in-game chat message from " + client.identifier +
                              data.decode().strip())  # like above
-                self.callback([client, data.decode()])
+                self.callback([tuple([client.ip, client.port]), data.decode()])
 
             elif re.match(rb"^" + self.ingame_spec, data):
                 data = re.sub(rb"^" + self.ingame_chat, b'', data)
@@ -469,3 +469,6 @@ class XonoticProtocol(GameProtocolUDP):
                         query.data = data
                         query.event.set()
                         return
+
+    def send(self, addr, msg):
+        self.rcon(self.get_client(addr), msg)
