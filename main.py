@@ -7,6 +7,9 @@ import logsetup
 def main():
     logger.info("Main executed")
 
+    handler.SafeLoaderPlusTuples.add_constructor(u'tag:yaml.org,2002:/python/tuple',
+                                         handler.SafeLoaderPlusTuples.construct_tuple)
+
     handler_ = handler.Handler()
     handler_.run()
     return
