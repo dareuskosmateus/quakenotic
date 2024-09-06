@@ -1,12 +1,12 @@
 import asyncio
 
 import logsetup
-import bot_base
+from bot_base import BotBase
 
 logger = logsetup.setup_log(__name__)
 
 
-class MatrixBot(bot_base.BotBase):
+class MatrixBot(BotBase):
     def __init__(self):
         super().__init__()
 

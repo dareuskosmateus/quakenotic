@@ -1,12 +1,12 @@
 import asyncio
 
 import logsetup
-import bot_base
+from bot_base import BotBase
 
 logger = logsetup.setup_log(__name__)
 
 
-class IRCBot(bot_base.BotBase):
+class IRCBot(BotBase):
     def __init__(self):
         super().__init__()
 

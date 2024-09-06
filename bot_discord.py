@@ -15,16 +15,12 @@ class Bot(discord.ext.commands.Bot):
     from_xonotic_format = "`{}`"
 
     def __init__(self, *args, **kwargs):
-        self.loop = asyncio.get_running_loop()
         self.token = kwargs['token'] if kwargs['token'] else None
-        intents = kwargs['intents']
-        kwargs.pop('intents')
-        super().__init__(*args, intents=discord.Intents(**intents), **kwargs)
-
-        self.connections = {}
+        super().__init__(*args, intents=discord.Intents(**kwargs.pop('intents')), **kwargs)
+        self.channels = kwargs['channels']
+        self.callback = kwargs['callback']
 
         self.setup_commands()
-
         return
 
     @classmethod
@@ -63,21 +59,13 @@ class Bot(discord.ext.commands.Bot):
         @self.command(name="status",
                       description="Queries game server for current status: players, map, hostname.")
         async def game_status(ctx):
-            for conn in self.connections:
-                for client in conn.protocol.clients:
-                    if ctx.channel in client.channels:
-                        data = await conn.protocol.request_status(client, ctx.author.name.encode())
-                        await ctx.channel.send(embed=self.format_status(data, ctx.author.name))
+
             return
 
         @self.command(name="info",
                       description="Queries game server for current info. Doesn't seem to be different from status")
         async def game_info(ctx):
-            for conn in self.connections:
-                for client in conn.protocol.clients:
-                    if ctx.channel in client.channels:
-                        data = await conn.protocol.request_info(client, ctx.author.name.encode())
-                        await ctx.channel.send(embed=self.format_status(data, ctx.author.name))
+
             return
 
         @self.command(name="ping", description="Pong.")
@@ -98,8 +86,14 @@ class Bot(discord.ext.commands.Bot):
     async def on_message(self, message: discord.Message, /):
         """Stock discord coroutine."""
 
-        if not message.author.bot:
-            await self.process_commands(message)
+        if message.author.bot:
+            return
+
+        await self.process_commands(message)
+        if message.channel.id in self.channels:
+            logger.debug("Caught a message")
+            self.callback([tuple([self, message.channel.id]), message.content])
+            pass
 
         return
 
