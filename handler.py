@@ -6,6 +6,7 @@ import threading
 import importlib
 import platform
 
+from typing import Callable
 import logsetup
 
 logger = logsetup.setup_log(__name__)
@@ -19,6 +20,17 @@ def formatsyspath(filename: str) -> str:
             return "/" + filename
         case _:
             raise NotImplementedError("Unsupported system")
+
+
+class CallbackObject(object):
+    def __init__(self, callback: Callable, loop: asyncio.AbstractEventLoop = None):
+        self.callback = callback
+        self.loop = loop if loop else asyncio.get_running_loop()
+        return
+
+    def __call__(self, *args, **kwargs):
+        self.loop.call_soon_threadsafe(self.callback(*args, **kwargs))
+        return
 
 
 class ThreadLoop(threading.Thread):
@@ -46,9 +58,9 @@ class Relay(object):  # struct
 
 
 class SharedChat(object):  # struct
-    def __init__(self, servers, relays):
+    def __init__(self, servers, bots):
         super().__init__()
-        self.servers, self.relays = servers, relays
+        self.servers, self.bots = servers, bots
 
 
 class CustomQueue(queue.Queue):
@@ -115,7 +127,7 @@ class Handler(object):
         self.relays = BijectiveDict()
         self.connections = BijectiveDict()
         self.servers = BijectiveDict()
-        self.threads = {}
+        self.threads = BijectiveDict()
         self.sharedpool = BijectiveDict()
 
     @classmethod
@@ -141,10 +153,11 @@ class Handler(object):
         await self.setup()
 
         while not self.event_stop.is_set():
-            await self.stuff_to_read.wait()
+            await self.queue.event.wait()
             msg = await self.queue.async_get()
-            await asyncio.create_task(self.handle_messages(*msg))
-            self.stuff_to_read.clear()
+            if msg:
+                await asyncio.create_task(self.handle_messages(*msg))
+                self.stuff_to_read.clear()
 
         return
 
@@ -187,7 +200,7 @@ class Handler(object):
                     })
 
                 sockets[game]['protocol']['args'].append(clients)
-                sockets[game]['protocol']['kwargs'].update({"write_callback": self.queue.put_notify})
+                sockets[game]['protocol']['kwargs'].update({"write_callback": CallbackObject(self.queue.put_notify)})
 
                 self.connections.update({game: Connection.from_await(
                     self.queue,
@@ -218,7 +231,7 @@ class Handler(object):
 
                 package = importlib.import_module(relays[bot]['path'])
                 classname = getattr(package, relays[bot]['classname'])
-                relay = classname(*relays[bot]['args'], **relays[bot]['kwargs'])
+                relay = classname(*relays[bot]['args'], callback=CallbackObject(self.queue.put_notify), **relays[bot]['kwargs'])
 
                 self.relays.update({bot: Relay(
                     self.queue,
@@ -248,7 +261,7 @@ class Handler(object):
                 self.sharedpool.update({chat: SharedChat(
                     {self.servers[server]: self.get_conn(self.servers[server])
                      for server in servers},
-                    {self.relays[relay]: relays[relay] for relay in relays}
+                    {self.relays[relay].bot: relays[relay] for relay in relays}
                 )
                 })
                 pass
@@ -265,9 +278,13 @@ class Handler(object):
         if not self.relays:
             logger.warning(self.identifier + "Called setup_threads but relays are empty")
 
-        self.threads.update(BijectiveDict({self.relays[relay]: ThreadLoop(target=self.relays[relay].bot.start,
-                                                     args=self.relays[relay].runargs,
-                                                     kwargs=self.relays[relay].runkwargs) for relay in self.relays}))
+        #for relay in self.relays:
+        #    await asyncio.create_task(self.relays[relay].bot.start())
+
+        self.threads.update({self.relays[relay].bot: ThreadLoop(target=self.relays[relay].bot.start,
+                                                            args=self.relays[relay].runargs,
+                                                            kwargs=self.relays[relay].runkwargs) for relay in
+                             self.relays})
 
         for each in self.threads:
             self.threads[each].start()
@@ -276,7 +293,7 @@ class Handler(object):
 
     async def create_connection(self, socket_type: str, protocol: asyncio.Protocol,
                                 protargs: list, protkwargs: dict, connargs: list, connkwargs: dict,
-                                ) -> tuple[asyncio.Transport, asyncio.Protocol] | None:
+                                ) -> tuple[asyncio.Transport, asyncio.Protocol] | asyncio.Server | None:
         loop = asyncio.get_running_loop()
 
         try:
@@ -307,19 +324,19 @@ class Handler(object):
 
     async def handle_message(self, _from: tuple[str, int] | tuple[object, int], *msg: str):
         for shared in self.sharedpool:
-            if _from not in self.sharedpool[shared].servers and _from not in self.sharedpool[shared].relays:
+            if _from not in self.sharedpool[shared].servers and _from[0] not in self.sharedpool[shared].bots:
                 continue
 
             for server in self.sharedpool[shared].servers:
                 if _from == server:
                     continue
 
-                self.sharedpool[shared].servers[server].protocol.send(_from, "".join(msg))
+                self.sharedpool[shared].servers[server].protocol.send(server, "".join(msg))
 
-            for relay in self.sharedpool[shared].relays:
-                if _from == relay:
+            for bot in self.sharedpool[shared].bots:
+                if _from[0] == bot:
                     continue
 
-                asyncio.run_coroutine_threadsafe(relay.bot.send(self.sharedpool[shared].relays[relay], "".join(msg)),
-                                                 loop=self.threads[relay].loop)
+                asyncio.run_coroutine_threadsafe(bot.send(self.sharedpool[shared].bots[bot], "".join(msg)),
+                                                 loop=self.threads[bot].loop)
         return
