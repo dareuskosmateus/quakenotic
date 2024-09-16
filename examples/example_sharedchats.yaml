@@ -1,0 +1,4 @@
+sample_shared_chat_name:
+    relays:
+        example_relay: ["sample_channel_id_string"] # channel id's of this particular relay,
+    servers: ["sample_server_name"] # names of servers defined in sockets.yaml

@@ -1,0 +1,13 @@
+example_relay:
+    active: true #true, false, turns this relay on or off
+    path: "path_to_file_with_relay_class"
+    classname: "name_of_relay_class"
+
+    args: [] # args to be passed when creating an instance of this relay class. consult the actual implementation
+    kwargs: # kwargs -""-
+        token: "sample_token"
+
+    run: # args and kwargs to be passed to the "run" method of this relay class. consult the actual implementation
+        args: []
+        kwargs: {}
+

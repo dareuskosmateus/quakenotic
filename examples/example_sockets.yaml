@@ -1,0 +1,22 @@
+sample_game_name:
+    local_addr: "127.0.0.1" # unused
+    local_port: 7000 # unused
+
+    protocol:
+        name: "sample_protocol_class_name"
+        path: "sample_path_to_file_with_protocol"
+        type: udp #tcp, udp, unix
+
+        args: [] # args to be passed to protocol upon creation of instance
+        kwargs: {} # kwargs -""-
+
+        conn:
+            args: [] # args to be passed to asyncio method creating the connection
+            kwargs: {} # kwargs -""-
+
+        servers:
+            sample_server_name:
+                active: true #true, false, turns this server off but without erasing this data
+                addr: "ip_address_of_server"
+                port: 26000 #port number the server is listening on
+                passw: "sample_rcon_pass" #rcon password of the server if needed
