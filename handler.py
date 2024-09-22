@@ -190,6 +190,7 @@ class Handler(object):
                 clients = []
                 for server in sockets[game]['protocol']['servers']:
                     if sockets[game]['protocol']['servers'][server]['active'] is not True:
+                        self.servers.update({server: None})
                         continue
 
                     clients.append(sockets[game]['protocol']['servers'][server])
@@ -227,6 +228,7 @@ class Handler(object):
 
             for bot in relays:
                 if relays[bot]['active'] is not True:
+                    self.relays.update({bot: None})
                     continue
 
                 package = importlib.import_module(relays[bot]['path'])
