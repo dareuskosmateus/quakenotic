@@ -82,6 +82,41 @@ class XonoticProtocol(GameProtocolUDP):
 
     discordsay = "discordsay "
 
+    LOOKUP_TABLE = [
+        '', '#', '#', '#', '#', '.', '#', '#',
+        '#', 9, 10, '#', ' ', 13, '.', '.',
+        '[', ']', '0', '1', '2', '3', '4', '5',
+        '6', '7', '8', '9', '.', '<', '=', '>',
+        ' ', '!', '"', '#', '$', '%', '&', '\'',
+        '(', ')', '*', '+', ',', '-', '.', '/',
+        '0', '1', '2', '3', '4', '5', '6', '7',
+        '8', '9', ':', ';', '<', '=', '>', '?',
+        '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G',
+        'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+        'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W',
+        'X', 'Y', 'Z', '[', '\\', ']', '^', '_',
+        '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g',
+        'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+        'p', 'q', 'r', 's', 't', 'u', 'v', 'w',
+        'x', 'y', 'z', '{', '|', '}', '~', '<',
+        '<', '=', '>', '#', '#', '.', '#', '#',
+        '#', '#', ' ', '#', ' ', '>', '.', '.',
+        '[', ']', '0', '1', '2', '3', '4', '5',
+        '6', '7', '8', '9', '.', '<', '=', '>',
+        ' ', '!', '"', '#', '$', '%', '&', '\'',
+        '(', ')', '*', '+', ',', '-', '.', '/',
+        '0', '1', '2', '3', '4', '5', '6', '7',
+        '8', '9', ':', ';', '<', '=', '>', '?',
+        '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G',
+        'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+        'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W',
+        'X', 'Y', 'Z', '[', '\\', ']', '^', '_',
+        '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g',
+        'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+        'p', 'q', 'r', 's', 't', 'u', 'v', 'w',
+        'x', 'y', 'z', '{', '|', '}', '~', '<'
+    ]  # stolen from rcon.pl
+
     def __init__(self,
                  clients: list,
                  *args,
@@ -117,6 +152,11 @@ class XonoticProtocol(GameProtocolUDP):
         """Identifier to help keep track which object issued a log message."""
         return f"<{str(__class__.__name__)}> - " \
                f"{str(self.transport.get_extra_info('sockname'))}:"
+
+    def dp2ascii(self, string):
+        return ''.join(
+            [char if ord(char) < 0xE07F or ord(char) > 0xE0FF
+             else self.LOOKUP_TABLE[ord(char) - 0xE000] for char in string])
 
     def get_client(self, addr: tuple):
         for each in self.clients:
