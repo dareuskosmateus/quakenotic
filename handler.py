@@ -180,7 +180,7 @@ class Handler(object):
 
     async def setup_connections(self):
         logger.info(self.identifier + "Setting up connections...")
-        with open(os.path.dirname(os.path.realpath(sys.argv[0])) + formatsyspath("sockets.yaml")) as file:
+        with open(os.path.dirname(os.path.realpath(sys.argv[0])) + formatsyspath("config/sockets.yaml")) as file:
             sockets = yaml.load(file, Loader=SafeLoaderPlusTuples)
 
             for game in sockets:
@@ -223,7 +223,7 @@ class Handler(object):
 
     async def setup_relays(self):
         logger.info(self.identifier + "Setting up relays...")
-        with open(os.path.dirname(os.path.realpath(sys.argv[0])) + formatsyspath("relays.yaml")) as file:
+        with open(os.path.dirname(os.path.realpath(sys.argv[0])) + formatsyspath("config/relays.yaml")) as file:
             relays = yaml.load(file, Loader=SafeLoaderPlusTuples)
 
             for bot in relays:
@@ -255,7 +255,7 @@ class Handler(object):
                 + "Called setup_shared_chats but connections or relays are empty")
             # only run if these are already set up due to dependency on previous setups
 
-        with open(os.path.dirname(os.path.realpath(sys.argv[0])) + formatsyspath("sharedchats.yaml")) as file:
+        with open(os.path.dirname(os.path.realpath(sys.argv[0])) + formatsyspath("config/sharedchats.yaml")) as file:
             shared = yaml.load(file, Loader=SafeLoaderPlusTuples)
 
             for chat in shared:
