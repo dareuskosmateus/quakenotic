@@ -6,13 +6,13 @@ import threading
 import importlib
 import platform
 
-from typing import Callable
+from typing import Callable, Self
 import logsetup
 
 logger = logsetup.setup_log(__name__)
 
-
 def formatsyspath(filename: str) -> str:
+    """Helper function to parse stupid filepaths on different systems."""
     match platform.system():
         case "Windows":
             return "\\" + filename
@@ -23,6 +23,11 @@ def formatsyspath(filename: str) -> str:
 
 
 class CallbackObject(object):
+    """
+    A callable callback object for chat bots to pass messages through.
+    Since threading is really bad in python this object also passes along the asyncio event loop for the bot thread to use.
+    No real multithreading actually takes place.
+    """
     def __init__(self, callback: Callable, loop: asyncio.AbstractEventLoop = None):
         self.callback = callback
         self.loop = loop if loop else asyncio.get_running_loop()
@@ -31,7 +36,6 @@ class CallbackObject(object):
     def __call__(self, *args, **kwargs):
         self.loop.call_soon_threadsafe(self.callback(*args, **kwargs))
         return
-
 
 class ThreadLoop(threading.Thread):
     def __init__(self, *args, **kwargs):
@@ -46,11 +50,19 @@ class ThreadLoop(threading.Thread):
 
 
 class SafeLoaderPlusTuples(yaml.SafeLoader):
+    """
+    A class for yaml custom types support.
+    More information can be found in https://pyyaml.org/wiki/PyYAMLDocumentation#yaml-tags-and-python-types
+    """
     def construct_tuple(self, node):
         return tuple(self.construct_sequence(node))
 
 
 class Relay(object):  # struct
+    """
+    A struct like class for encapsulation purposes.
+    Contains references to various objects related to the notion of a relay within this script.
+    """
     def __init__(self, queue, bot, args, kwargs, runargs, runkwargs):
         super().__init__()
         self.queue, self.bot, self.args, self.kwargs, self.runargs, self.runkwargs = (
@@ -58,6 +70,10 @@ class Relay(object):  # struct
 
 
 class SharedChat(object):  # struct
+    """
+    A struct like class for encapsulation purposes.
+    Contains references to various objects related to the notion of a shared chat within this script.
+    """
     def __init__(self, servers, bots):
         super().__init__()
         self.servers, self.bots = servers, bots
@@ -89,6 +105,7 @@ class BijectiveDict(dict):
     """
     Two-way dict
     https://en.wikipedia.org/wiki/Bidirectional_map
+    https://en.wikipedia.org/wiki/Bijection
     """
 
     def __init__(self, mydict=dict()):
@@ -109,15 +126,34 @@ class BijectiveDict(dict):
 
 
 class Connection(object):  # struct
-    def __init__(self, queue, transport, protocol, clients):
+    """
+    A struct like class for encapsulation purposes.
+    Contains references to various objects related to the notion of a connection to a game/whatever server within this script.
+    """
+    def __init__(self, queue, transport: asyncio.Transport, protocol: asyncio.Protocol, clients: list):
         self.queue, self.transport, self.protocol, self.clients = queue, transport, protocol, clients
 
     @classmethod
-    def from_await(cls, queue, async_wrap: tuple[asyncio.Transport, asyncio.Protocol], clients):
+    def from_await(cls, queue, async_wrap: tuple[asyncio.Transport, asyncio.Protocol], clients: list) -> Self:
+        """
+        Custom constructor.
+        :param queue:
+        :param async_wrap:
+        :param clients:
+        :return:
+        """
         return cls(queue, async_wrap[0], async_wrap[1], clients)
 
 
 class Handler(object):
+    """
+    A class representing the notion of a message handler. A glorified but bastardized form of the adapter pattern.
+    Within this script can only run one thread for memory sanity reasons, so only one handler is needed like the singleton pattern
+    (don't really need two separate handlers if one does the trick),
+    however it is possible to run multiple scripts with a handler each to simulate multithreading with a bunch of independent processes.
+    For this, user supplied config paths are to be added.
+    """
+
     def __init__(self):
         super().__init__()
         self.event_stop = asyncio.Event()
@@ -131,7 +167,7 @@ class Handler(object):
         self.sharedpool = BijectiveDict()
 
     @classmethod
-    async def new(cls):
+    async def new(cls) -> Self:
         self = cls()
         return self
 
@@ -166,6 +202,12 @@ class Handler(object):
         return
 
     async def setup(self):
+        """
+        Sets connections, relays, and shared chats before asyncio loop begins running.
+        Additionally adds a constructor to yaml's custom types.
+        :return: None
+        """
+
         SafeLoaderPlusTuples.add_constructor(u'tag:yaml.org,2002:python/tuple',
                                              SafeLoaderPlusTuples.construct_tuple)
 
@@ -195,9 +237,9 @@ class Handler(object):
 
                     clients.append(sockets[game]['protocol']['servers'][server])
                     self.servers.update({server: tuple([
-                        sockets[game]['protocol']['servers'][server]['addr'],
-                        sockets[game]['protocol']['servers'][server]['port']
-                    ])
+                                                    sockets[game]['protocol']['servers'][server]['addr'],
+                                                    sockets[game]['protocol']['servers'][server]['port']
+                                                    ])
                     })
 
                 sockets[game]['protocol']['args'].append(clients)
@@ -271,6 +313,13 @@ class Handler(object):
         return
 
     def get_conn(self, server: tuple[str, int]):
+        """
+        Getter function to return a connection object of a given tuple of IP address and port.
+        Get a better search algorithm.
+        :param server: a tuple of IP address and port.
+        :return: Connection
+        """
+
         for conn in self.connections:
             if server in self.connections[conn].clients:
                 return self.connections[conn]
@@ -296,6 +345,18 @@ class Handler(object):
     async def create_connection(self, socket_type: str, protocol: asyncio.Protocol,
                                 protargs: list, protkwargs: dict, connargs: list, connkwargs: dict,
                                 ) -> tuple[asyncio.Transport, asyncio.Protocol] | asyncio.Server | None:
+        """
+        Creates an asyncio.Transport and asyncio.Protocol pair according to specified.
+        Note this pair of objects is not thread safe.
+        :param socket_type: socket type as defined in. Is a string to make it easier on the matching (not like we are going to get another socket type within this century)
+        :param protocol: protocol as defined in https://docs.python.org/3/library/asyncio-protocol.html#protocols
+        :param protargs: args to protocol constructor.
+        :param protkwargs: kwargs to protocol constructor.
+        :param connargs: args to transport constructor.
+        :param connkwargs: kwargs to transport construtor.
+        :return: a tuple of transport, protocol of asyncio module. Possibly asyncio.Server for some reason i can't remember as well. None on failure.
+        """
+
         loop = asyncio.get_running_loop()
 
         try:
@@ -330,12 +391,14 @@ class Handler(object):
                 continue
 
             for server in self.sharedpool[shared].servers:
+                # send to all the other servers in shared pool
                 if _from == server:
                     continue
 
                 self.sharedpool[shared].servers[server].protocol.send(server, "".join(msg))
 
             for bot in self.sharedpool[shared].bots:
+                # ssend to all bots in shared pool
                 if _from[0] == bot:
                     continue
 
