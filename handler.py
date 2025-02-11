@@ -24,8 +24,8 @@ def formatsyspath(filename: str) -> str:
 
 class CallbackObject(object):
     """
-    A callable callback object for chat bots to pass messages through.
-    Since threading is really bad in python this object also passes along the asyncio event loop for the bot thread to use.
+    A callable callback object for chatbots to pass messages through.
+    Since threading is terrible in python this object also passes along the asyncio event loop for the bot thread to use.
     No real multithreading actually takes place.
     """
     def __init__(self, callback: Callable, loop: asyncio.AbstractEventLoop = None):
@@ -154,8 +154,9 @@ class Handler(object):
     For this, user supplied config paths are to be added.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
         self.event_stop = asyncio.Event()
         self.stuff_to_read = asyncio.Event()
 
@@ -315,7 +316,7 @@ class Handler(object):
     def get_conn(self, server: tuple[str, int]):
         """
         Getter function to return a connection object of a given tuple of IP address and port.
-        Get a better search algorithm.
+        Get a better search algorithm. Maybe add in some kind of partial or lexicographic order.
         :param server: a tuple of IP address and port.
         :return: Connection
         """
@@ -398,7 +399,7 @@ class Handler(object):
                 self.sharedpool[shared].servers[server].protocol.send(server, "".join(msg))
 
             for bot in self.sharedpool[shared].bots:
-                # ssend to all bots in shared pool
+                # send to all bots in shared pool
                 if _from[0] == bot:
                     continue
 
