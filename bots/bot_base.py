@@ -6,8 +6,9 @@ logger = logsetup.setup_log(__name__)
 
 
 class BotBase(object):
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super().__init__()
+        return
 
     def __del__(self):
         return

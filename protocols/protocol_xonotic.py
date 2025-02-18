@@ -13,12 +13,10 @@ import misc
 
 logger = logsetup.setup_log(__name__)
 
-
 class Security(Enum):
     RCON_INSECURE = 0
     RCON_SECURE_TIME = 1
     RCON_SECURE_CHALLENGE = 2
-
 
 class Client(object):
     def __init__(self, ip: str, port: int, passw: str, security=Security.RCON_SECURE_TIME):
@@ -43,7 +41,7 @@ class Player(object):
         self.team = Player.match_team(args[2]) if args[2] else ""
 
     @staticmethod
-    def match_team(team: int):
+    def match_team(team: int) -> str | None:
         match int(team):
             case 0:
                 return "Spec"
@@ -154,17 +152,19 @@ class XonoticProtocol(GameProtocolUDP):
                f"{str(self.transport.get_extra_info('sockname'))}:"
 
     def dp2ascii(self, string):
+        """Character lookup for custom Xonotic text characters in the UTF convention."""
         return ''.join(
             [char if ord(char) < 0xE07F or ord(char) > 0xE0FF
              else self.LOOKUP_TABLE[ord(char) - 0xE000] for char in string])
 
-    def get_client(self, addr: tuple):
+    def get_client(self, addr: tuple) -> Client:
+        """Getter function for getting object representing the client by address."""
         for each in self.clients:
             if tuple([each.ip, each.port]) == addr:
                 return each
         return False
 
-    def create_client(self, ip, port, passw):
+    def create_client(self, ip, port, passw) -> Client:
         return Client(ip, port, passw)
 
     def connection_made(self, transport):
@@ -215,6 +215,10 @@ class XonoticProtocol(GameProtocolUDP):
             return
 
     def datagram_received(self, data: bytes, addr):
+        """
+        A bunch of regular expression matches to parse Xonotic messages according to its own specification.
+        Could probably use an overhaul, take some of these out into functions-on-their-own.
+        """
         if re.match(rb"^" + self.header, data):
             client = self.get_client(addr)
 
@@ -277,6 +281,7 @@ class XonoticProtocol(GameProtocolUDP):
             return
 
     def construct_getchallenge(self) -> bytes:
+        """Constructs a challenge for identification purposes."""
         return self.header + self.getchallenge
 
     @Decorators.if_transport
@@ -346,7 +351,7 @@ class XonoticProtocol(GameProtocolUDP):
         :param client: client struct containing address and port.
         :param command: A command to send to the remote host.
         :type command: str
-        :return: Body of unsecure rcon protocoled packet.
+        :return: Body of insecure rcon protocoled packet.
         """
         return self.header + self.insecure + client.passw + command
 

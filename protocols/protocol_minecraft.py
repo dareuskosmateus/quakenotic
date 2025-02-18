@@ -14,11 +14,17 @@ class Packet(object):
 
     @classmethod
     def from_bytes(cls, data: bytes) -> Self:
+        """
+        A classmethod custom constructor to construct an object of this type from pure bytes.
+        :param data: bytes to slice to construct this object off of.
+        :return: Self
+        """
         self = cls(int(data[4:8]), int(data[8:12]), bytes(data[12:-1]))
         return self
 
     @property
     def length(self):
+        """Returns length of the actual contents of this packet. Does not reflect the total length in bytes."""
         return len(self.contents)
 
     @property
