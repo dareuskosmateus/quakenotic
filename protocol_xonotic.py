@@ -120,6 +120,7 @@ class XonoticProtocol(GameProtocolUDP):
                  *args,
                  write_callback: Callable = None,
                  on_con_lost: asyncio.Future = None,
+                 keepalive_timer: int = 20,
                  **kwargs):
         """
         :param parent: Parent of this object. Use to call parent's methods where applicable
@@ -138,10 +139,9 @@ class XonoticProtocol(GameProtocolUDP):
         self.clients = [self.create_client(args['addr'], args['port'], args['passw']) for args in clients]
         self.on_con_lost = on_con_lost
         self.callback = write_callback
+        self.keepalive_timer = keepalive_timer
 
         self.transport = None
-
-        asyncio.create_task(self.keep_alive())
 
         return
 
@@ -149,7 +149,7 @@ class XonoticProtocol(GameProtocolUDP):
     def identifier(self):
         """Identifier to help keep track which object issued a log message."""
         return f"<{str(__class__.__name__)}> - " \
-               f"{str(self.transport.get_extra_info('sockname'))}:"
+               f"{str(self.transport.get_extra_info('sockname') if self.transport else "No transport")}:"
 
     def dp2ascii(self, string):
         """Character lookup for custom Xonotic text characters in the UTF convention."""
@@ -175,6 +175,8 @@ class XonoticProtocol(GameProtocolUDP):
         for each in self.clients:
             logger.info(self.identifier + "Creating set_chat_dest tasks...")
             asyncio.create_task(self.set_chat_dest(each))
+
+        asyncio.create_task(self.keep_alive())
         return
 
     async def set_chat_dest(self, client: Client):
@@ -370,16 +372,13 @@ class XonoticProtocol(GameProtocolUDP):
         return  # do we care about return value of an rcon?
 
     @Decorators.if_transport
-    async def keepalive(self, client: Client = None) -> None:
+    async def keep_alive(self, client: Client = None) -> None:
         """Keeps the system from closing this socket"""
-        if client is not None:
-            logger.debug(self.identifier + "Keepalive sent to " + client.identifier)
-            self.transport.sendto(self.keepalive, (client.ip, client.port))
-        else:
+        while True:
             for each in self.clients:
                 logger.debug(self.identifier + "Keepalive sent to " + each.identifier)
                 self.transport.sendto(self.keepalive, (each.ip, each.port))
-        return  # don't care about the return of this
+                await asyncio.sleep(self.keepalive_timer)
 
     @Decorators.if_transport
     @Decorators.querying()
@@ -460,8 +459,3 @@ class XonoticProtocol(GameProtocolUDP):
     def send(self, addr, msg):
         self.rcon(self.get_client(addr), "say " + msg)
 
-    async def keep_alive(self):
-        while True:
-            for client in self.clients:
-                self.transport.sendto(self.keepalive, (client.ip, client.port))
-            await asyncio.sleep(20)
